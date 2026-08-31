@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import qrcode from 'qrcode-generator'
 import { ParseError, parseSchedule, type Lesson, type Schedule } from './lib/parseSchedule'
+import { decodeShare, encodeShare, shareUrl } from './lib/share'
 import './App.css'
 
 const DATA_KEY = 'school-schedule:data'
@@ -58,6 +60,17 @@ const STRINGS = {
     step2: 'Otevřete konzoli prohlížeče (⌥⌘J / F12) a spusťte:',
     copy: 'Kopírovat příkaz',
     copied: 'Zkopírováno',
+    copyLink: 'Kopírovat odkaz',
+    onPhone: 'Import přímo v telefonu',
+    onPhoneHelp:
+      'V telefonu není konzole. Uložte si tento řádek jako záložku (v Safari: přidat záložku, pak ji upravit a vložit místo adresy). Na stránce rozvrhu pak stačí záložku otevřít — HTML se zkopíruje do schránky a tady ho vložíte.',
+    toPhone: 'Přenést do telefonu',
+    shareTitle: 'Otevřít v telefonu',
+    shareHelp:
+      'Naskenujte kód telefonem, nebo si odkaz pošlete. Rozvrh je zabalený přímo v odkazu — nikam se neodesílá.',
+    shareTooBig: 'Rozvrh je na QR kód moc velký, použijte odkaz.',
+    shareError: 'Odkaz se nepodařilo vytvořit.',
+    close: 'Zavřít',
     step3: 'Vložte zkopírovaný obsah níže, nebo sem přetáhněte uloženou stránku (.html).',
     paste: 'Sem vložte HTML stránky rozvrhu…',
     load: 'Načíst rozvrh',
@@ -115,6 +128,17 @@ const STRINGS = {
     step2: 'Open the browser console (⌥⌘J / F12) and run:',
     copy: 'Copy command',
     copied: 'Copied',
+    copyLink: 'Copy link',
+    onPhone: 'Import on the phone itself',
+    onPhoneHelp:
+      'Phones have no console. Save this line as a bookmark (in Safari: add a bookmark, then edit it and replace the address). On the timetable page just open that bookmark — the HTML lands in your clipboard and you paste it here.',
+    toPhone: 'Send to phone',
+    shareTitle: 'Open on your phone',
+    shareHelp:
+      'Scan the code with your phone, or send yourself the link. The timetable is packed into the link itself — it is not uploaded anywhere.',
+    shareTooBig: 'This timetable is too large for a QR code, use the link.',
+    shareError: 'Could not build the link.',
+    close: 'Close',
     step3: 'Paste what you copied below, or drop the saved page (.html) here.',
     paste: 'Paste the timetable page HTML here…',
     load: 'Load timetable',
@@ -129,6 +153,9 @@ const STRINGS = {
 type Strings = (typeof STRINGS)['cs']
 
 const CONSOLE_SNIPPET = 'copy(document.documentElement.outerHTML)'
+const BOOKMARKLET = "javascript:navigator.clipboard.writeText(document.documentElement.outerHTML).then(function(){alert('OK')})"
+/** Above this the QR gets too dense for a phone camera; the link still works. */
+const QR_LIMIT = 2400
 
 const browserLang = (): 'cs' | 'en' =>
   typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('cs') ? 'cs' : 'en'
@@ -248,6 +275,72 @@ function CopyButton({ t, text }: { t: Strings; text: string }) {
   )
 }
 
+function SharePanel({
+  t,
+  schedule,
+  picks,
+  onClose,
+}: {
+  t: Strings
+  schedule: Schedule
+  picks: string[]
+  onClose: () => void
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    encodeShare({ schedule, picks })
+      .then((token) => live && setUrl(shareUrl(token)))
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+    }
+  }, [schedule, picks])
+
+  const qr = useMemo(() => {
+    if (!url || url.length > QR_LIMIT) return null
+    const code = qrcode(0, 'L')
+    code.addData(url)
+    code.make()
+    return code.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
+  }, [url])
+
+  useEffect(() => {
+    if (!copied) return
+    const id = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(id)
+  }, [copied])
+
+  return (
+    <section className="share">
+      <div className="share-head">
+        <h2>{t.shareTitle}</h2>
+        <button className="chip" onClick={onClose}>
+          ✕ {t.close}
+        </button>
+      </div>
+      <p className="picker-hint">{t.shareHelp}</p>
+      {failed && <p className="error">{t.shareError}</p>}
+      {qr ? (
+        <div className="qr" dangerouslySetInnerHTML={{ __html: qr }} />
+      ) : (
+        url && <p className="picker-hint">{t.shareTooBig}</p>
+      )}
+      {url && (
+        <button
+          className={copied ? 'copy done' : 'copy static'}
+          onClick={() => void navigator.clipboard?.writeText(url).then(() => setCopied(true))}
+        >
+          {copied ? t.copied : t.copyLink}
+        </button>
+      )}
+    </section>
+  )
+}
+
 function ImportScreen({
   t,
   theme,
@@ -302,6 +395,15 @@ function ImportScreen({
         <li>{t.step3}</li>
       </ol>
 
+      <details className="bookmarklet">
+        <summary>{t.onPhone}</summary>
+        <p className="picker-hint">{t.onPhoneHelp}</p>
+        <div className="snippet">
+          <pre>{BOOKMARKLET}</pre>
+          <CopyButton t={t} text={BOOKMARKLET} />
+        </div>
+      </details>
+
       <div
         className={dragging ? 'dropzone over' : 'dropzone'}
         onDragOver={(e) => {
@@ -354,6 +456,7 @@ function ScheduleView({
   const { hours, events, notes } = schedule
 
   const [picked, setPicked] = useState<string[]>(() => loadStored<string[]>(PICKS_KEY, []))
+  const [sharing, setSharing] = useState(false)
   const [pickedOnly, setPickedOnly] = useState(false)
   const [hiddenCourses, setHiddenCourses] = useState<Set<string>>(new Set())
 
@@ -508,6 +611,9 @@ function ScheduleView({
           <button className="chip" onClick={() => setPicked([])} disabled={picked.length === 0}>
             {t.clearPicks}
           </button>
+          <button className={sharing ? 'chip on' : 'chip'} onClick={() => setSharing((v) => !v)}>
+            {t.toPhone}
+          </button>
           <button className="chip" onClick={onReimport}>
             {t.replace}
           </button>
@@ -522,6 +628,10 @@ function ScheduleView({
           <ThemeButton t={t} theme={theme} setTheme={setTheme} />
         </div>
       </header>
+
+      {sharing && (
+        <SharePanel t={t} schedule={schedule} picks={picked} onClose={() => setSharing(false)} />
+      )}
 
       <section className="picker">
         <p className="picker-hint">{t.hint}</p>
@@ -689,7 +799,24 @@ export default function App() {
     loadStored<Schedule | null>(DATA_KEY, null),
   )
   const [importing, setImporting] = useState(false)
+  const [version, setVersion] = useState(0)
   const [theme, setTheme] = useTheme()
+
+  // a link from another device carries the timetable in its fragment
+  useEffect(() => {
+    const token = location.hash.match(/^#s=(.+)$/)?.[1]
+    if (!token) return
+    history.replaceState(null, '', location.pathname + location.search)
+    void decodeShare(token)
+      .then(({ schedule: shared, picks }) => {
+        store(DATA_KEY, shared)
+        store(PICKS_KEY, picks)
+        setSchedule(shared)
+        setImporting(false)
+        setVersion((v) => v + 1)
+      })
+      .catch(() => undefined)
+  }, [])
 
   const t = STRINGS[schedule?.lang ?? browserLang()]
 
@@ -704,6 +831,7 @@ export default function App() {
           store(DATA_KEY, next)
           setSchedule(next)
           setImporting(false)
+          setVersion((v) => v + 1)
         }}
       />
     )
@@ -711,6 +839,7 @@ export default function App() {
 
   return (
     <ScheduleView
+      key={version}
       schedule={schedule}
       t={t}
       theme={theme}
