@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import qrcode from 'qrcode-generator'
 import { ParseError, parseSchedule, type Lesson, type Schedule } from './lib/parseSchedule'
-import { decodeShare, encodeShare, shareUrl } from './lib/share'
+import { decodePage, decodeShare, encodeShare, shareUrl } from './lib/share'
 import './App.css'
 
 const DATA_KEY = 'school-schedule:data'
@@ -63,7 +63,7 @@ const STRINGS = {
     copyLink: 'Kopírovat odkaz',
     onPhone: 'Import přímo v telefonu',
     onPhoneHelp:
-      'V telefonu není konzole. Uložte si tento řádek jako záložku (v Safari: přidat záložku, pak ji upravit a vložit místo adresy). Na stránce rozvrhu pak stačí záložku otevřít — HTML se zkopíruje do schránky a tady ho vložíte.',
+      'V telefonu není konzole. Uložte si tento řádek jako záložku — vytvořte libovolnou záložku, upravte ji a vložte tenhle text místo adresy (do adresního řádku ho vkládat nejde, prohlížeč „javascript:“ smaže). Na stránce rozvrhu pak záložku spusťte: stránka se zabalí a rovnou otevře tuhle aplikaci s načteným rozvrhem. Nic se nekopíruje ani neodesílá.',
     toPhone: 'Přenést do telefonu',
     shareTitle: 'Otevřít v telefonu',
     shareHelp:
@@ -131,7 +131,7 @@ const STRINGS = {
     copyLink: 'Copy link',
     onPhone: 'Import on the phone itself',
     onPhoneHelp:
-      'Phones have no console. Save this line as a bookmark (in Safari: add a bookmark, then edit it and replace the address). On the timetable page just open that bookmark — the HTML lands in your clipboard and you paste it here.',
+      'Phones have no console. Save this line as a bookmark — create any bookmark, edit it and paste this in place of the address (pasting it into the address bar will not work, browsers strip “javascript:”). On the timetable page run that bookmark: the page is packed up and opens this app with the timetable already loaded. Nothing is copied or uploaded.',
     toPhone: 'Send to phone',
     shareTitle: 'Open on your phone',
     shareHelp:
@@ -153,7 +153,11 @@ const STRINGS = {
 type Strings = (typeof STRINGS)['cs']
 
 const CONSOLE_SNIPPET = 'copy(document.documentElement.outerHTML)'
-const BOOKMARKLET = "javascript:navigator.clipboard.writeText(document.documentElement.outerHTML).then(function(){alert('OK')})"
+const bookmarklet = (appUrl: string) =>
+  "javascript:(async()=>{try{const b=new Uint8Array(await new Response(new Blob([document.documentElement.outerHTML])" +
+  ".stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());let s='';for(const c of b)s+=String.fromCharCode(c);" +
+  `location.href='${appUrl}#r='+btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')` +
+  "}catch(e){alert(e)}})()"
 /** Above this the QR gets too dense for a phone camera; the link still works. */
 const QR_LIMIT = 2400
 
@@ -347,15 +351,17 @@ function ImportScreen({
   setTheme,
   onLoaded,
   onCancel,
+  initialError,
 }: {
   t: Strings
   theme: Theme
   setTheme: (v: Theme) => void
   onLoaded: (schedule: Schedule) => void
   onCancel?: () => void
+  initialError?: string | null
 }) {
   const [html, setHtml] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(initialError ?? null)
   const [dragging, setDragging] = useState(false)
 
   function load(source: string) {
@@ -399,8 +405,8 @@ function ImportScreen({
         <summary>{t.onPhone}</summary>
         <p className="picker-hint">{t.onPhoneHelp}</p>
         <div className="snippet">
-          <pre>{BOOKMARKLET}</pre>
-          <CopyButton t={t} text={BOOKMARKLET} />
+          <pre>{bookmarklet(location.origin + location.pathname)}</pre>
+          <CopyButton t={t} text={bookmarklet(location.origin + location.pathname)} />
         </div>
       </details>
 
@@ -800,22 +806,32 @@ export default function App() {
   )
   const [importing, setImporting] = useState(false)
   const [version, setVersion] = useState(0)
+  const [hashError, setHashError] = useState<'no-timetable' | 'generic' | null>(null)
   const [theme, setTheme] = useTheme()
 
-  // a link from another device carries the timetable in its fragment
+  /**
+   * Two handoffs arrive in the fragment: #s= from another device of ours,
+   * #r= from the bookmarklet, which sends the gzipped UIS page itself.
+   */
   useEffect(() => {
-    const token = location.hash.match(/^#s=(.+)$/)?.[1]
-    if (!token) return
+    const shared = location.hash.match(/^#s=(.+)$/)?.[1]
+    const page = location.hash.match(/^#r=(.+)$/)?.[1]
+    if (!shared && !page) return
     history.replaceState(null, '', location.pathname + location.search)
-    void decodeShare(token)
-      .then(({ schedule: shared, picks }) => {
-        store(DATA_KEY, shared)
-        store(PICKS_KEY, picks)
-        setSchedule(shared)
+
+    const load = shared
+      ? decodeShare(shared)
+      : decodePage(page!).then((html) => ({ schedule: parseSchedule(html), picks: null }))
+
+    void load
+      .then(({ schedule: next, picks }) => {
+        store(DATA_KEY, next)
+        if (picks) store(PICKS_KEY, picks)
+        setSchedule(next)
         setImporting(false)
         setVersion((v) => v + 1)
       })
-      .catch(() => undefined)
+      .catch((e: unknown) => setHashError(e instanceof ParseError ? 'no-timetable' : 'generic'))
   }, [])
 
   const t = STRINGS[schedule?.lang ?? browserLang()]
@@ -827,6 +843,7 @@ export default function App() {
         theme={theme}
         setTheme={setTheme}
         onCancel={schedule ? () => setImporting(false) : undefined}
+        initialError={hashError && (hashError === 'no-timetable' ? t.errNoTimetable : t.errGeneric)}
         onLoaded={(next) => {
           store(DATA_KEY, next)
           setSchedule(next)

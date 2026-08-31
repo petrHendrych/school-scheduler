@@ -127,6 +127,17 @@ export async function decodeShare(token: string): Promise<Share> {
   }
 }
 
+/**
+ * The bookmarklet hands the whole UIS page over the same way: gzipped into the
+ * fragment, because Chrome on Android refuses clipboard writes from a
+ * bookmarklet launched from the address bar.
+ */
+export async function decodePage(token: string): Promise<string> {
+  const raw = await squeeze(fromBase64Url(token), 'gunzip')
+  if (!raw) throw new Error('decompression unavailable')
+  return new TextDecoder().decode(raw)
+}
+
 /** The link the other device opens; the payload lives in the fragment only. */
 export const shareUrl = (token: string) =>
   `${location.origin}${location.pathname}#s=${token}`
