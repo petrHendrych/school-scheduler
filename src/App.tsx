@@ -56,6 +56,8 @@ const STRINGS = {
     steps: 'Postup',
     step1: 'V UIS otevřete Zobrazení a tisk rozvrhů (formát HTML).',
     step2: 'Otevřete konzoli prohlížeče (⌥⌘J / F12) a spusťte:',
+    copy: 'Kopírovat příkaz',
+    copied: 'Zkopírováno',
     step3: 'Vložte zkopírovaný obsah níže, nebo sem přetáhněte uloženou stránku (.html).',
     paste: 'Sem vložte HTML stránky rozvrhu…',
     load: 'Načíst rozvrh',
@@ -111,6 +113,8 @@ const STRINGS = {
     steps: 'Steps',
     step1: 'In UIS open Display and print the course weekly plan (HTML format).',
     step2: 'Open the browser console (⌥⌘J / F12) and run:',
+    copy: 'Copy command',
+    copied: 'Copied',
     step3: 'Paste what you copied below, or drop the saved page (.html) here.',
     paste: 'Paste the timetable page HTML here…',
     load: 'Load timetable',
@@ -123,6 +127,8 @@ const STRINGS = {
 }
 
 type Strings = (typeof STRINGS)['cs']
+
+const CONSOLE_SNIPPET = 'copy(document.documentElement.outerHTML)'
 
 const browserLang = (): 'cs' | 'en' =>
   typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('cs') ? 'cs' : 'en'
@@ -210,6 +216,38 @@ function ThemeButton({ t, theme, setTheme }: { t: Strings; theme: Theme; setThem
   )
 }
 
+function CopyButton({ t, text }: { t: Strings; text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const id = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(id)
+  }, [copied])
+
+  return (
+    <button
+      className={copied ? 'copy done' : 'copy'}
+      title={t.copy}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => setCopied(true))
+      }}
+    >
+      {copied ? (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8.5 6.2 12 13 4.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="5.2" y="5.2" width="8.3" height="8.3" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M10.8 5.2V3.9c0-.8-.6-1.4-1.4-1.4H3.9c-.8 0-1.4.6-1.4 1.4v5.5c0 .8.6 1.4 1.4 1.4h1.3" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      )}
+      {copied ? t.copied : t.copy}
+    </button>
+  )
+}
+
 function ImportScreen({
   t,
   theme,
@@ -256,7 +294,10 @@ function ImportScreen({
         <li>{t.step1}</li>
         <li>
           {t.step2}
-          <pre>copy(document.documentElement.outerHTML)</pre>
+          <div className="snippet">
+            <pre>{CONSOLE_SNIPPET}</pre>
+            <CopyButton t={t} text={CONSOLE_SNIPPET} />
+          </div>
         </li>
         <li>{t.step3}</li>
       </ol>

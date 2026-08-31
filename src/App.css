@@ -637,3 +637,42 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
+
+.snippet {
+  position: relative;
+}
+
+.snippet pre {
+  padding-right: 130px;
+}
+
+.copy {
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.copy:hover {
+  color: var(--text);
+}
+
+.copy.done {
+  color: hsl(145 55% 42%);
+  border-color: hsl(145 55% 42% / 0.6);
+}
+
+.copy svg {
+  width: 13px;
+  height: 13px;
+}
