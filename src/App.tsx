@@ -2,155 +2,27 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import qrcode from 'qrcode-generator'
 import { ParseError, parseSchedule, type Lesson, type Schedule } from './lib/parseSchedule'
 import { decodePage, decodeShare, encodeShare, shareUrl } from './lib/share'
+import { drop, loadStored, store } from './lib/storage'
+import { browserLang, STRINGS, type Strings } from './lib/strings'
+import {
+  clearAll,
+  emptyDraft,
+  isDirty,
+  loadDraft,
+  loadVersions,
+  newId,
+  nextVersionName,
+  saveDraft,
+  saveVersions,
+  type Draft,
+  type ScheduleVersion,
+} from './lib/versions'
 import './App.css'
 
 const DATA_KEY = 'school-schedule:data'
-const PICKS_KEY = 'school-schedule:selection:v2'
 const THEME_KEY = 'school-schedule:theme'
 
 type Theme = 'system' | 'light' | 'dark'
-
-/** UI labels follow the language of the imported timetable. */
-const STRINGS = {
-  cs: {
-    kind: { lecture: 'přednáška', seminar: 'cvičení' },
-    week: { odd: 'lichý týden', even: 'sudý týden' },
-    weekShort: { odd: 'lichý', even: 'sudý' },
-    validity: 'Platnost',
-    lastChange: 'Poslední změna',
-    lessons: (shown: number, total: number) => `${shown} ze ${total} hodin`,
-    choicesPicked: (done: number, total: number) => `vybráno ${done} z ${total} voleb`,
-    showPicked: 'Zobrazit jen vybrané',
-    showingPicked: 'Zobrazeny jen vybrané',
-    clearPicks: 'zrušit výběr',
-    hint: (
-      <>
-        Kliknutím na hodinu v&nbsp;rozvrhu ji vyberete — dostane červený rám a&nbsp;ostatní varianty
-        téže volby z&nbsp;rozvrhu zmizí. Vybrané hodiny a&nbsp;hodiny bez alternativy se nikdy
-        neskrývají. <b>Zobrazit jen vybrané</b> navíc skryje varianty, které jste zatím nerozhodli;
-        kliknutí na název předmětu skryje jen jeho nerozhodnuté varianty.
-      </>
-    ),
-    picked: 'vybráno',
-    notPicked: 'nevybráno',
-    lectureOnly: 'není z čeho vybírat',
-    variantsToPick: (n: number) => `${n} variant na výběr`,
-    unpickHint: 'Kliknutím zrušíte výběr',
-    hideCourse: 'Skrýt nerozhodnuté varianty tohoto předmětu',
-    nothingToPick: 'Tento předmět nemá co vybírat',
-    legendLecture: 'pevná — pokud předmět nemá víc variant',
-    legendSeminar: 'varianta — klikněte pro výběr',
-    legendWeek: 'probíhá každý druhý týden',
-    legendPicked: 'červený rám = váš výběr',
-    notesTitle: 'Poznámky',
-    clickPick: 'Kliknutím vyberete',
-    clickUnpick: 'Kliknutím zrušíte výběr',
-    lectureFixed: 'Bez alternativy — vždy zobrazeno',
-    weeksOnly: (w: string) => `pouze ${w}`,
-    theme: { system: 'Podle systému', light: 'Světlý režim', dark: 'Tmavý režim' },
-    themeHint: 'Přepnout světlý/tmavý režim',
-    replace: 'Nahradit rozvrh',
-    forget: 'Smazat data',
-    forgetConfirm: 'Opravdu smazat uložený rozvrh z tohoto prohlížeče?',
-    importTitle: 'Načtěte svůj rozvrh',
-    privacy:
-      'Rozvrh se zpracuje přímo ve vašem prohlížeči a uloží se jen do něj (localStorage). Nikam se neodesílá a nikam se neukládá na server.',
-    steps: 'Postup',
-    step1: 'V UIS otevřete Zobrazení a tisk rozvrhů (formát HTML).',
-    step2: 'Otevřete konzoli prohlížeče (⌥⌘J / F12) a spusťte:',
-    copy: 'Kopírovat příkaz',
-    copied: 'Zkopírováno',
-    copyLink: 'Kopírovat odkaz',
-    onPhone: 'Import přímo v telefonu',
-    onPhoneHelp:
-      'V telefonu není konzole. Uložte si tento řádek jako záložku — vytvořte libovolnou záložku, upravte ji a vložte tenhle text místo adresy (do adresního řádku ho vkládat nejde, prohlížeč „javascript:“ smaže). Na stránce rozvrhu pak záložku spusťte: stránka se zabalí a rovnou otevře tuhle aplikaci s načteným rozvrhem. Nic se nekopíruje ani neodesílá.',
-    toPhone: 'Přenést do telefonu',
-    shareTitle: 'Otevřít v telefonu',
-    shareHelp:
-      'Naskenujte kód telefonem, nebo si odkaz pošlete. Rozvrh je zabalený přímo v odkazu — nikam se neodesílá.',
-    shareTooBig: 'Rozvrh je na QR kód moc velký, použijte odkaz.',
-    shareError: 'Odkaz se nepodařilo vytvořit.',
-    close: 'Zavřít',
-    step3: 'Vložte zkopírovaný obsah níže, nebo sem přetáhněte uloženou stránku (.html).',
-    paste: 'Sem vložte HTML stránky rozvrhu…',
-    load: 'Načíst rozvrh',
-    dropHere: 'Pusťte soubor .html',
-    errNoTimetable: 'V vloženém obsahu není rozvrhová tabulka. Zkopírovali jste celou stránku rozvrhu?',
-    errEmpty: 'Nejdřív vložte obsah stránky.',
-    errGeneric: 'Obsah se nepodařilo zpracovat.',
-    loaded: (n: number) => `Načteno ${n} hodin.`,
-  },
-  en: {
-    kind: { lecture: 'lecture', seminar: 'seminar' },
-    week: { odd: 'odd week', even: 'even week' },
-    weekShort: { odd: 'odd', even: 'even' },
-    validity: 'Validity',
-    lastChange: 'Last change',
-    lessons: (shown: number, total: number) => `${shown} of ${total} lessons`,
-    choicesPicked: (done: number, total: number) => `${done} of ${total} choices picked`,
-    showPicked: 'Show picked only',
-    showingPicked: 'Showing picked only',
-    clearPicks: 'clear picks',
-    hint: (
-      <>
-        Click any lesson in the grid to pick it — it gets a red outline and the other variants of the
-        same choice drop off the grid. Picks and lessons without alternatives are never filtered out.{' '}
-        <b>Show picked only</b> additionally hides the variants you have not decided yet; clicking a
-        course name hides that one course&rsquo;s undecided variants.
-      </>
-    ),
-    picked: 'picked',
-    notPicked: 'not picked',
-    lectureOnly: 'nothing to choose',
-    variantsToPick: (n: number) => `${n} variants to choose from`,
-    unpickHint: 'Click to unpick',
-    hideCourse: 'Hide this course’s undecided variants',
-    nothingToPick: 'Nothing to choose for this course',
-    legendLecture: 'fixed — unless the course offers several',
-    legendSeminar: 'variant — click to pick',
-    legendWeek: 'run every other week',
-    legendPicked: 'red outline = picked by you',
-    notesTitle: 'Notes',
-    clickPick: 'Click to pick',
-    clickUnpick: 'Click to unpick',
-    lectureFixed: 'No alternatives — always shown',
-    weeksOnly: (w: string) => `${w} only`,
-    theme: { system: 'System theme', light: 'Light mode', dark: 'Dark mode' },
-    themeHint: 'Switch light/dark mode',
-    replace: 'Replace timetable',
-    forget: 'Delete data',
-    forgetConfirm: 'Delete the stored timetable from this browser?',
-    importTitle: 'Load your timetable',
-    privacy:
-      'The timetable is parsed in your browser and stored only there (localStorage). Nothing is uploaded and nothing is kept on a server.',
-    steps: 'Steps',
-    step1: 'In UIS open Display and print the course weekly plan (HTML format).',
-    step2: 'Open the browser console (⌥⌘J / F12) and run:',
-    copy: 'Copy command',
-    copied: 'Copied',
-    copyLink: 'Copy link',
-    onPhone: 'Import on the phone itself',
-    onPhoneHelp:
-      'Phones have no console. Save this line as a bookmark — create any bookmark, edit it and paste this in place of the address (pasting it into the address bar will not work, browsers strip “javascript:”). On the timetable page run that bookmark: the page is packed up and opens this app with the timetable already loaded. Nothing is copied or uploaded.',
-    toPhone: 'Send to phone',
-    shareTitle: 'Open on your phone',
-    shareHelp:
-      'Scan the code with your phone, or send yourself the link. The timetable is packed into the link itself — it is not uploaded anywhere.',
-    shareTooBig: 'This timetable is too large for a QR code, use the link.',
-    shareError: 'Could not build the link.',
-    close: 'Close',
-    step3: 'Paste what you copied below, or drop the saved page (.html) here.',
-    paste: 'Paste the timetable page HTML here…',
-    load: 'Load timetable',
-    dropHere: 'Drop the .html file',
-    errNoTimetable: 'No timetable table in the pasted content. Did you copy the whole timetable page?',
-    errEmpty: 'Paste the page content first.',
-    errGeneric: 'Could not parse the content.',
-    loaded: (n: number) => `Loaded ${n} lessons.`,
-  },
-}
-
-type Strings = (typeof STRINGS)['cs']
 
 const CONSOLE_SNIPPET = 'copy(document.documentElement.outerHTML)'
 const bookmarklet = (appUrl: string) =>
@@ -160,9 +32,6 @@ const bookmarklet = (appUrl: string) =>
   "}catch(e){alert(e)}})()"
 /** Above this the QR gets too dense for a phone camera; the link still works. */
 const QR_LIMIT = 2400
-
-const browserLang = (): 'cs' | 'en' =>
-  typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('cs') ? 'cs' : 'en'
 
 /**
  * Pastel palette, one hue per course. Hues are hand-picked to stay distinct
@@ -199,23 +68,6 @@ function lanesFor(lessons: Lesson[]) {
     else lanes.push([lesson])
   }
   return lanes
-}
-
-function loadStored<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function store(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // storage unavailable (private window) — everything still works this session
-  }
 }
 
 function useTheme() {
@@ -444,6 +296,108 @@ function ImportScreen({
   )
 }
 
+/**
+ * Saved weeks. A version is only savable once every choice is decided, so each
+ * one is a full week the student could actually attend; loading one puts it
+ * back on the grid, which is how two versions get compared.
+ */
+function VersionsBar({
+  t,
+  versions,
+  loaded,
+  dirty,
+  complete,
+  missing,
+  onLoad,
+  onNew,
+  onSave,
+  onSaveAsNew,
+  onDiscard,
+  onRename,
+  onDelete,
+}: {
+  t: Strings
+  versions: ScheduleVersion[]
+  loaded: ScheduleVersion | null
+  dirty: boolean
+  complete: boolean
+  missing: number
+  onLoad: (v: ScheduleVersion) => void
+  onNew: () => void
+  onSave: () => void
+  onSaveAsNew: () => void
+  onDiscard: () => void
+  onRename: (v: ScheduleVersion) => void
+  onDelete: (v: ScheduleVersion) => void
+}) {
+  // nothing to offer when a loaded version is saved and unchanged
+  const showActions = dirty || !loaded || !complete
+
+  return (
+    <section className="versions">
+      <div className="versions-row">
+        <span className="versions-label">{t.versionsLabel}</span>
+        {versions.length === 0 ? (
+          <span className="versions-empty">{t.noVersions}</span>
+        ) : (
+          versions.map((v) => {
+            const active = v.id === loaded?.id
+            return (
+              <span className={active ? 'version-chip on' : 'version-chip'} key={v.id}>
+                <button className="version-open" onClick={() => onLoad(v)} title={t.switchVersion}>
+                  {v.name}
+                  {active && dirty && <span className="version-dirty">•</span>}
+                </button>
+                {active && (
+                  <>
+                    <button className="version-act" onClick={() => onRename(v)} title={t.renameVersion}>
+                      ✎
+                    </button>
+                    <button className="version-act" onClick={() => onDelete(v)} title={t.deleteVersion}>
+                      ✕
+                    </button>
+                  </>
+                )}
+              </span>
+            )
+          })
+        )}
+        <button className="chip" onClick={onNew}>
+          + {t.newVersion}
+        </button>
+      </div>
+
+      {showActions && (
+        <div className="versions-row">
+          {loaded && dirty && <span className="badge no">{t.unsavedChanges}</span>}
+          {loaded && dirty ? (
+            <>
+              <button className="chip save" onClick={onSave} disabled={!complete}>
+                {t.saveChanges}
+              </button>
+              <button className="chip" onClick={onSaveAsNew} disabled={!complete}>
+                {t.saveAsNew}
+              </button>
+              <button className="chip" onClick={onDiscard}>
+                {t.discardChanges}
+              </button>
+            </>
+          ) : (
+            !loaded && (
+              <button className="chip save" onClick={onSaveAsNew} disabled={!complete}>
+                {t.saveVersion}
+              </button>
+            )
+          )}
+          {!complete && <span className="versions-hint">{t.saveIncomplete(missing)}</span>}
+        </div>
+      )}
+
+      <p className="picker-hint">{t.versionsHint}</p>
+    </section>
+  )
+}
+
 function ScheduleView({
   schedule,
   t,
@@ -461,12 +415,22 @@ function ScheduleView({
 }) {
   const { hours, events, notes } = schedule
 
-  const [picked, setPicked] = useState<string[]>(() => loadStored<string[]>(PICKS_KEY, []))
+  const [versions, setVersions] = useState<ScheduleVersion[]>(loadVersions)
+  const [draft, setDraft] = useState<Draft>(loadDraft)
   const [sharing, setSharing] = useState(false)
   const [pickedOnly, setPickedOnly] = useState(false)
   const [hiddenCourses, setHiddenCourses] = useState<Set<string>>(new Set())
 
-  useEffect(() => store(PICKS_KEY, picked), [picked])
+  useEffect(() => saveVersions(versions), [versions])
+  useEffect(() => saveDraft(draft), [draft])
+
+  /** The picks on the grid are the draft's; a version is a saved copy of them. */
+  const picked = draft.picks
+  const loadedVersion = versions.find((v) => v.id === draft.from) ?? null
+  const dirty = isDirty(draft, versions)
+
+  const setPicks = (update: (prev: string[]) => string[]) =>
+    setDraft((d) => ({ ...d, picks: update(d.picks) }))
 
   const pickedSet = useMemo(() => new Set(picked), [picked])
 
@@ -575,7 +539,63 @@ function ScheduleView({
   function togglePick(e: Lesson) {
     if (!isChoosable(e)) return
     const key = variantKey(e)
-    setPicked((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+    setPicks((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  }
+
+  /** Any move away from unsaved picks asks first — they cannot be recovered. */
+  const mayLeaveDraft = () => !dirty || confirm(t.dirtyConfirm)
+
+  function loadVersion(v: ScheduleVersion) {
+    if (v.id === draft.from && !dirty) return
+    if (!mayLeaveDraft()) return
+    setDraft({ picks: [...v.picks], from: v.id })
+  }
+
+  function startNewVersion() {
+    if (!mayLeaveDraft()) return
+    setDraft(emptyDraft)
+  }
+
+  function saveOverLoaded() {
+    if (!loadedVersion) return
+    const id = loadedVersion.id
+    setVersions((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, picks: [...draft.picks], savedAt: Date.now() } : v)),
+    )
+  }
+
+  function saveAsNewVersion() {
+    const name = prompt(t.namePrompt, nextVersionName(versions, t.versionName))?.trim()
+    if (!name) return
+    const created: ScheduleVersion = {
+      id: newId(),
+      name,
+      picks: [...draft.picks],
+      savedAt: Date.now(),
+    }
+    setVersions((prev) => [...prev, created])
+    setDraft((d) => ({ ...d, from: created.id }))
+  }
+
+  function renameVersion(v: ScheduleVersion) {
+    const name = prompt(t.namePrompt, v.name)?.trim()
+    if (!name || name === v.name) return
+    setVersions((prev) => prev.map((o) => (o.id === v.id ? { ...o, name } : o)))
+  }
+
+  /**
+   * Deleting drops the version from the stored list for good; if it was the one
+   * on the grid the picks stay, now unattached, so nothing vanishes on screen.
+   */
+  function deleteVersion(v: ScheduleVersion) {
+    if (!confirm(t.deleteVersionConfirm(v.name))) return
+    setVersions((prev) => prev.filter((o) => o.id !== v.id))
+    if (draft.from === v.id) setDraft((d) => ({ ...d, from: null }))
+  }
+
+  function discardChanges() {
+    if (!loadedVersion) return
+    setDraft({ picks: [...loadedVersion.picks], from: loadedVersion.id })
   }
 
   function toggleCourse(courseId: string) {
@@ -614,7 +634,7 @@ function ScheduleView({
           >
             {pickedOnly ? t.showingPicked : t.showPicked}
           </button>
-          <button className="chip" onClick={() => setPicked([])} disabled={picked.length === 0}>
+          <button className="chip" onClick={() => setPicks(() => [])} disabled={picked.length === 0}>
             {t.clearPicks}
           </button>
           <button className={sharing ? 'chip on' : 'chip'} onClick={() => setSharing((v) => !v)}>
@@ -634,6 +654,22 @@ function ScheduleView({
           <ThemeButton t={t} theme={theme} setTheme={setTheme} />
         </div>
       </header>
+
+      <VersionsBar
+        t={t}
+        versions={versions}
+        loaded={loadedVersion}
+        dirty={dirty}
+        complete={madeChoices === openChoices.length}
+        missing={openChoices.length - madeChoices}
+        onLoad={loadVersion}
+        onNew={startNewVersion}
+        onSave={saveOverLoaded}
+        onSaveAsNew={saveAsNewVersion}
+        onDiscard={discardChanges}
+        onRename={renameVersion}
+        onDelete={deleteVersion}
+      />
 
       {sharing && (
         <SharePanel t={t} schedule={schedule} picks={picked} onClose={() => setSharing(false)} />
@@ -826,7 +862,8 @@ export default function App() {
     void load
       .then(({ schedule: next, picks }) => {
         store(DATA_KEY, next)
-        if (picks) store(PICKS_KEY, picks)
+        saveVersions([])
+        saveDraft({ picks: picks ?? [], from: null })
         setSchedule(next)
         setImporting(false)
         setVersion((v) => v + 1)
@@ -863,12 +900,8 @@ export default function App() {
       setTheme={setTheme}
       onReimport={() => setImporting(true)}
       onForget={() => {
-        try {
-          localStorage.removeItem(DATA_KEY)
-          localStorage.removeItem(PICKS_KEY)
-        } catch {
-          // nothing to clean up when storage is unavailable
-        }
+        drop(DATA_KEY)
+        clearAll()
         setSchedule(null)
       }}
     />

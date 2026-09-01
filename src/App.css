@@ -119,6 +119,92 @@ body {
   gap: 6px;
 }
 
+/* ---- saved versions ----------------------------------------------------- */
+
+.versions {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.versions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.versions-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.versions-empty,
+.versions-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* a chip that carries its own buttons, so the border lives on the wrapper */
+.version-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.version-chip.on {
+  border-color: hsl(357 70% 55% / 0.6);
+  background: hsl(357 70% 55% / 0.12);
+}
+
+.version-open,
+.version-act {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+.version-chip.on .version-open,
+.version-chip.on .version-act {
+  color: var(--text);
+}
+
+.version-act {
+  padding: 4px 6px;
+  opacity: 0.7;
+}
+
+.version-act:hover {
+  opacity: 1;
+}
+
+.version-dirty {
+  color: var(--pick);
+  margin-left: 5px;
+}
+
+.chip.save {
+  color: var(--text);
+  border-color: hsl(357 70% 55% / 0.6);
+}
+
+.chip.save:disabled {
+  color: var(--muted);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
 .picker {
   background: var(--panel);
   border: 1px solid var(--line);
