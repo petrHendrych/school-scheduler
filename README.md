@@ -37,6 +37,27 @@ data** wipes the stored timetable and your picks from the browser.
 - **Show picked only** additionally hides variants you have not decided yet.
 - Picks persist per browser and can be cleared any time.
 
+## Saving versions
+
+Once every choice is decided the week can be kept:
+
+- **Save version** asks for a name and stores that complete week in the browser.
+  It stays disabled while anything is still unpicked, and tells you how many
+  choices are left.
+- **New version** empties the grid so you can build a different week from
+  scratch, then save that one too.
+- Click a saved version to put it back on the grid — flipping between versions
+  is how you compare them. All versions share the one imported timetable.
+- Editing a loaded version marks it *unsaved*: **Save** overwrites it,
+  **Save as new** keeps both, **Discard changes** puts it back.
+- **✎** renames a version and **✕** deletes it — a deleted version is removed
+  from the browser for good; if it was the one on screen its picks stay on the
+  grid, no longer attached to any version.
+
+**Replace timetable** keeps your versions; **Delete data** removes all of them
+along with the timetable. The share link and QR code carry only what is on the
+grid right now, not the whole list.
+
 ## Development
 
 ```sh
